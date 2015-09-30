@@ -249,6 +249,9 @@ end
 methods(Static, Access=private)
     function out = serializearg(arg)
     %TORQUEJOB.SERIALIZEARG(ARG) Serialize argument to a string or error
+        if islogical(arg)
+            arg = double(arg);
+        end
         if ~isnumeric(arg) && ~ischar(arg)
             error('argument is not a numeric array or string');
         elseif ~ismatrix(arg)

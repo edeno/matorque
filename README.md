@@ -2,6 +2,8 @@
 
 matorque submits jobs to a Torque cluster via an SSH connection to the head node. It attempts to automatically determine function dependencies so that there is no need to maintain a mirror of local and remote code. It requires MATLAB 2014a or later.
 
+Note: Function arguments cannot be structures.
+
 ## Examples
 
 To run:
