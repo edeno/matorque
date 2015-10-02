@@ -1,0 +1,8 @@
+# Matlab proprietary files
+*.h
+*.ccp
+
+# Matlab Files
+*.mat
+*.asv
+*.m~

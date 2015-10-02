@@ -20,32 +20,25 @@ end
 
 methods
     %% Public interface
-    
+
     function self = TorqueJob(funcname, args, directives)
     %TORQUEJOB Create a new job on the cluster
     %   OBJ = TORQUEJOB(FUNCNAME, ARGS) runs FUNCNAME on the cluster,
     %   creating a separate task for each element in the numeric array,
     %   cell array, or cell array of cell arrays ARGS.
-    
+
         % Validate arguments
+        argstruct = struct();
         if ~iscell(args)
-            if ~isnumeric(args)
-                error('arguments must be a numeric or cell array');
-            end
             args = num2cell(args);
         end
-
-        argstrs = cell(1, length(args));
         for i = 1:numel(args)
-            arg = args{i};
-            if iscell(arg)
-                argstrs{i} = strjoin(cellfun(@self.serializearg, arg, 'UniformOutput', false), ',');
-            else
-                argstrs{i} = self.serializearg(arg);
-                args{i} = {arg};
+            if ~iscell(args{i})
+                args{i} = num2cell(args{i});
             end
+            argstruct.(sprintf('arg%d', i)) = args{i};
         end
-        
+
         % Get password
         matorque_config;
         [username, password] = self.credentials(false);
@@ -69,7 +62,7 @@ methods
                 end
             end
         end
-        
+
         % Copy dependencies to server
         fprintf('Copying dependencies to server...\n');
         deps = matlab.codetools.requiredFilesAndProducts(funcname);
@@ -81,21 +74,25 @@ methods
             end
             scp_put(self.conn, deps, self.dir, '/', remote_names);
         end
-        
+        putmat(self, 'arguments.mat', argstruct);
+
         % Start jobs
         fprintf('Submitting tasks...\n');
-        diaryfiles = cell(1, length(argstrs));
-        outfiles = cell(1, length(argstrs));
-        for i = 1:length(argstrs)
+        diaryfiles = cell(1, length(args));
+        outfiles = cell(1, length(args));
+        argstrs = cell(1, length(args));
+        for i = 1:numel(args)
             diaryfile = sprintf('%d_diary.txt', i);
-            preamble = sprintf('addpath(fullfile(pwd, ''%s''))', self.dir);
+            preamble = sprintf(['addpath(fullfile(pwd, ''%s'')); ' ...
+                                'load(fullfile(pwd, ''%s/arguments.mat''), ''arg%d'');'], ...
+                               self.dir, self.dir, i);
             if nargout(funcname) == 0
                 outfile = [];
-                cmd = sprintf('%s; %s(%s);', preamble, funcname, argstrs{i});
+                cmd = sprintf('%s; %s(arg%d{:});', preamble, funcname, i);
             else
                 outfile = sprintf('%d_output.mat', i);
-                cmd = sprintf('%s; out = %s(%s); save(''%s/%s'', ''out'');', ...
-                              preamble, funcname, argstrs{i}, self.dir, outfile);
+                cmd = sprintf('%s; out = %s(arg%d{:}); save(''%s/%s'', ''out'');', ...
+                              preamble, funcname, i, self.dir, outfile);
             end
             matlab_cmd = sprintf('matlab -nodisplay -singleCompThread -r %s -logfile %s/%s >/dev/null 2>&1', ...
                 self.shellesc(cmd), self.dir, diaryfile);
@@ -111,7 +108,7 @@ methods
         cmd = strjoin(argstrs, sprintf('\n'));
         self.puttxt('command.sh', cmd);
         [~, result] = ssh2_command(self.conn, sprintf('sh %s/command.sh', self.dir));
-        
+
         % Check for errors
         err = numel(result) ~= numel(argstrs);
         for i = 1:length(result)
@@ -122,11 +119,11 @@ methods
                 err = true;
             end
         end
-        
+
         if err
             error('An error occurred starting jobs:\n\n%s', strjoin(result, '\n'));
         end
-        
+
         % Create process objects
         procs = cell(1, numel(result));
         for i = 1:numel(result)
@@ -134,31 +131,31 @@ methods
         end
         self.tasks = procs;
     end
-    
+
     function out = get.status(self)
     %OBJ.STATUS Gets the combined status of all tasks in this job
         out = strjoin(sort(unique(self.taskstatus(self.tasknames()))), '/');
     end
-    
+
     function kill(self)
     %OBJ.KILL Kill all tasks in this job
         self.taskkill(self.tasknames());
     end
-    
+
     function cleanup(self)
     %OBJ.CLEANUP() Cleans up all files associated with this job
         assert(strncmp(self.dir, 'jobs/', 5));
         cmd = sprintf('rm -rf %s', self.shellesc(self.dir));
         [~, ~] = ssh2_command(self.conn, cmd);
     end
-    
+
     %% Semi-private interface
     function delete(self)
     %OBJ.DELETE() Destructor for class; cleans up associated files if done
         if isempty(self.tasks)
             return
         end
-        
+
         curstatus = self.status;
         if strcmp(curstatus, 'done')
             self.cleanup()
@@ -167,12 +164,12 @@ methods
                     '(status = %s). Not cleaning up files.'], curstatus);
         end
     end
-    
+
     function out = readtxt(self, fname)
     %OBJ.READTXT(FNAME) Read a text file from the head node
         [~, out] = ssh2_command(self.conn, ['cat ' self.dir '/' fname]);
     end
-    
+
     function out = readmat(self, fname)
     %OBJ.READMAT(FNAME) Read a MAT file from the head node
         tmp = tempname;
@@ -184,9 +181,9 @@ methods
         rmdir(tmp);
         out = contents.out;
     end
-    
+
     function puttxt(self, fname, txt)
-    %OBJ.PUTTXT(FNAME) Put text in a file on the head node
+    %OBJ.PUTTXT(FNAME, TXT) Put text in a file on the head node
         tmp = tempname;
         fid = fopen(tmp, 'w');
         fwrite(fid, txt);
@@ -194,7 +191,15 @@ methods
         scp_put(self.conn, tmp, self.dir, '/', fname);
         delete(tmp);
     end
-    
+
+    function putmat(self, fname, struct)
+    %OBJ.PUTMAT(FNAME, OBJ) Save a struct to a MAT file on the head node
+        tmp = [tempname '.mat'];
+        save(tmp, '-struct', 'struct');
+        scp_put(self.conn, tmp, self.dir, '/', fname);
+        delete(tmp);
+    end
+
     function status = taskstatus(self, jobids)
     %TASKSTATUS(SELF, JOBIDS) Get status of task or tasks
         % Get job info as XML
@@ -205,7 +210,7 @@ methods
         end
         [~, status] = ssh2_command(self.conn, ['qstat -x ' strjoin(celljobs, ' ')]);
         map = containers.Map();
-        
+
         if numel(status) > 1 || ~isempty(status{1})
             docbuilder = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder();
             for i = 1:numel(status)
@@ -220,7 +225,7 @@ methods
                 map(char(jobid)) = char(jobstate);
             end
         end
-        
+
         % Match each job with an entry, or else assume finished
         status = cell(1, numel(celljobs));
         for i = 1:numel(celljobs)
@@ -231,12 +236,12 @@ methods
             end
             status{i} = self.statemap(state);
         end
-        
+
         if ~iscell(jobids)
             status = status{1};
         end
     end
-    
+
     function taskkill(self, jobid)
     %TASKKILL(SELF, JOBID) Kills task or tasks
         if iscell(jobid)
@@ -247,44 +252,34 @@ methods
 end
 
 methods(Static, Access=private)
-    function out = serializearg(arg)
-    %TORQUEJOB.SERIALIZEARG(ARG) Serialize argument to a string or error
-        if ~isnumeric(arg) && ~ischar(arg)
-            error('argument is not a numeric array or string');
-        elseif ~ismatrix(arg)
-            error('argument is not a scalar, vector, or matrix');
-        end
-        out = mat2str(arg);
-    end
-    
     function [outlogin, outpassword] = credentials(forceauth)
     %TORQUEJOB.CREDENTIALS(FORCEAUTH) Get login and password
         persistent login password;
-        
+
         if forceauth || isempty(login) || isempty(password)
             matorque_config;
-            
+
             if isempty(USERNAME)
                 [login, password] = logindlg('Title', ['Credentials for ' HOST]);
             else
                 login = USERNAME;
                 password = logindlg('Title', ['Password for ' USERNAME '@' HOST]);
             end
-            
+
             if isempty(login) && isempty(password)
                 error('User cancelled');
             end
         end
-        
+
         outlogin = login;
         outpassword = password;
     end
-    
+
     function escaped = shellesc(arg)
     %TORQUEJOB.SHELLESC(ARG) Escape command-line argument
         escaped = sprintf('''%s''', strrep(arg, '''', '''\'''''));
     end
-    
+
     function ssh2_struct = sshconfig()
         ssh2_struct = struct();
 
@@ -321,7 +316,7 @@ methods(Static, Access=private)
 
         ssh2_struct.verified_config = 0;
         ssh2_struct.ssh2_java_library_loaded = 1;
-        
+
         jar = fullfile(fileparts(mfilename('fullpath')), 'ssh2', 'ganymed-ssh2-m1', 'ganymed-ssh2-m1.jar');
         if ~ismember(jar, javaclasspath)
             javaaddpath(jar);
