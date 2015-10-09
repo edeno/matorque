@@ -43,7 +43,7 @@ methods
     
     function out = get.output(self)
         if isempty(self.outfile)
-            error('Task had no output.');
+%             error('Task had no output.');
         elseif ~isempty(self.savedoutput)
             out = self.savedoutput;
         else
