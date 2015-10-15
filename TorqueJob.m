@@ -86,13 +86,13 @@ methods
             preamble = sprintf(['addpath(fullfile(pwd, ''%s'')); ' ...
                                 'load(fullfile(pwd, ''%s/arguments.mat''), ''arg%d'');'], ...
                                self.dir, self.dir, i);
-            if nargout(funcname) == 0
+            if nargout(funcname) <= 0
                 outfile = [];
                 cmd = sprintf('%s; %s(arg%d{:});', preamble, funcname, i);
             else
                 outfile = sprintf('%d_output.mat', i);
-                cmd = sprintf('%s; out = %s(arg%d{:}); save(''%s/%s'', ''out'');', ...
-                              preamble, funcname, i, self.dir, outfile);
+                cmd = sprintf('%s; out = cell(1, nargout(''%s'')); [out{:}] = %s(arg%d{:}); save(''%s/%s'', ''out'');', ...
+                              preamble, funcname, funcname, i, self.dir, outfile);
             end
             matlab_cmd = sprintf('matlab -nodisplay -singleCompThread -r %s -logfile %s/%s >/dev/null 2>&1', ...
                 self.shellesc(cmd), self.dir, diaryfile);
