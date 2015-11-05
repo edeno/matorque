@@ -241,16 +241,14 @@ methods
         end
         [~, status] = ssh2_command(self.conn, sprintf('qstat -u %s -xml', self.conn.username));
 
-        if numel(status) > 1 || ~isempty(status{1})
-          jobstate = cellfun(@(x) regexp(x, '<state>(\w+)</state>', 'tokens'), status, 'UniformOutput', false);
-          jobstate = [jobstate{:}]; jobstate = [jobstate{:}];
-          jobid = cellfun(@(x) regexp(x, '<JB_job_number>(\w+)</JB_job_number>', 'tokens'), status, 'UniformOutput', false);
-          jobid = [jobid{:}]; jobid = [jobid{:}];
-          if ~isempty(jobid) && ~isempty(jobstate),
-              map = containers.Map(jobid, jobstate);
-          else
-              map = containers.Map();
-          end
+        jobstate = cellfun(@(x) regexp(x, '<state>(\w+)</state>', 'tokens'), status, 'UniformOutput', false);
+        jobstate = [jobstate{:}]; jobstate = [jobstate{:}];
+        jobid = cellfun(@(x) regexp(x, '<JB_job_number>(\w+)</JB_job_number>', 'tokens'), status, 'UniformOutput', false);
+        jobid = [jobid{:}]; jobid = [jobid{:}];
+        if ~isempty(jobid) && ~isempty(jobstate),
+            map = containers.Map(jobid, jobstate);
+        else
+            map = containers.Map();
         end
 
         % Match each job with an entry, or else assume finished
