@@ -125,7 +125,11 @@ methods
             matlab_cmd = sprintf('matlab -nodisplay -singleCompThread -r %s -logfile %s/%s >/dev/null 2>&1', ...
                 self.shellesc(cmd), self.dir, diaryfile);
             if exist('directives', 'var')
-                matlab_cmd = sprintf('#$ -l %s\n%s', directives, matlab_cmd);
+                if ~iscell(directives)
+                    matlab_cmd = sprintf('#$ %s\n%s', directives, matlab_cmd);
+                else
+                    matlab_cmd = sprintf('%s%s', sprintf('#$ %s\n', directives{:}), matlab_cmd);
+                end
             end
             diaryfiles{i} = diaryfile;
             outfiles{i} = outfile;
