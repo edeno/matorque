@@ -221,7 +221,11 @@ methods
           jobstate = [jobstate{:}]; jobstate = [jobstate{:}];
           jobid = cellfun(@(x) regexp(x, '<JB_job_number>(\w+)</JB_job_number>', 'tokens'), status, 'UniformOutput', false);
           jobid = [jobid{:}]; jobid = [jobid{:}];
-          map = containers.Map(jobid, jobstate);
+          if ~isempty(jobid) && ~isempty(jobstate),
+              map = containers.Map(jobid, jobstate);
+          else
+              map = containers.Map();
+          end
         end
 
         % Match each job with an entry, or else assume finished
