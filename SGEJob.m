@@ -24,7 +24,7 @@ end
 methods
     %% Public interface
 
-    function self = SGEJob(funcname, args, directives, deps)
+    function self = SGEJob(funcname, varargin)
     %SGEJOB Create a new job on the cluster
     %   OBJ = SGEJOB(FUNCNAME, ARGS) runs FUNCNAME on the cluster,
     %   creating a separate task for each element in the numeric array,
@@ -39,10 +39,20 @@ methods
     %   responsible for adding relevant paths using addpath.
 
         % Validate arguments
+        inParser = inputParser;
+        inParser.addRequired('funcname', @ischar);
+        inParser.addOptional('args', {});
+        inParser.addOptional('directives', [], @(x) ischar(x) || iscell(x) || isempty(x));
+        inParser.addOptional('deps', true, @islogical);
+        inParser.addParameter('workingDir', [], @ischar);
+        
+        inParser.parse(funcname, varargin{:});
+        args = inParser.Results.args;
+        directives = inParser.Results.directives;
+        deps = inParser.Results.deps;
+        
         argstruct = struct();
-        if isempty(args)
-            args = {};
-        elseif ~iscell(args)
+        if ~isempty(args) && ~iscell(args)
             if isnumeric(args) || islogical(args)
                 args = num2cell(args);
             else
@@ -64,7 +74,11 @@ methods
         matorque_config;
         [username, password] = self.credentials(false);
         fprintf('Connecting to server...\n');
-        self.dir = sprintf('jobs/%d', randi(2^53-1));
+        if ~isempty(inParser.Results.workingDir)
+            self.dir = sprintf('%s/jobs/%d', inParser.Results.workingDir, randi(2^53-1));
+        else
+            self.dir = sprintf('jobs/%d', randi(2^53-1));
+        end
         while isempty(self.conn)
             config = self.sshconfig();
             config.hostname = HOST;
@@ -85,7 +99,7 @@ methods
         end
 
         % Copy dependencies to server
-        if ~exist('deps', 'var') || deps
+        if deps
             fprintf('Copying function and dependencies to server...\n');
             deps = matlab.codetools.requiredFilesAndProducts(funcname);
             if ~isempty(deps)
@@ -111,9 +125,15 @@ methods
         argstrs = cell(1, length(args));
         for i = 1:numel(args)
             diaryfile = sprintf('%d_diary.txt', i);
-            preamble = sprintf(['addpath(fullfile(pwd, ''%s'')); ' ...
-                                'load(fullfile(pwd, ''%s/arguments.mat''), ''arg%d'');'], ...
-                               self.dir, self.dir, i);
+            if isempty(inParser.Results.workingDir),
+                preamble = sprintf(['addpath(fullfile(pwd, ''%s'')); ' ...
+                    'load(fullfile(pwd, ''%s/arguments.mat''), ''arg%d'');'], ...
+                    self.dir, self.dir, i);
+            else
+                preamble = sprintf(['addpath(''%s''); ' ...
+                    'load(''%s/arguments.mat'', ''arg%d'');'], ...
+                    self.dir, self.dir, i);
+            end
             if nargout(funcname) <= 0
                 outfile = [];
                 cmd = sprintf('%s; %s(arg%d{:});', preamble, funcname, i);
@@ -124,7 +144,7 @@ methods
             end
             matlab_cmd = sprintf('matlab -nodisplay -singleCompThread -r %s -logfile %s/%s >/dev/null 2>&1', ...
                 self.shellesc(cmd), self.dir, diaryfile);
-            if exist('directives', 'var')
+            if ~isempty(directives)
                 if ~iscell(directives)
                     matlab_cmd = sprintf('#$ %s\n%s', directives, matlab_cmd);
                 else
