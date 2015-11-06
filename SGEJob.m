@@ -199,7 +199,7 @@ methods
 
     function cleanup(self)
     %OBJ.CLEANUP() Cleans up all files associated with this job
-        assert(strncmp(self.dir, 'jobs/', 5));
+%         assert(strncmp(self.dir, 'jobs/', 5));
         cmd = sprintf('rm -rf %s', self.shellesc(self.dir));
         [~, ~] = ssh2_command(self.conn, cmd);
     end
