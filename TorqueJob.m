@@ -21,7 +21,7 @@ end
 methods
     %% Public interface
 
-    function self = TorqueJob(funcname, args, directives, deps)
+    function self = TorqueJob(funcname, varargin)
     %TORQUEJOB Create a new job on the cluster
     %   OBJ = TORQUEJOB(FUNCNAME, ARGS, DIRECTIVES, DEPS) runs FUNCNAME
     %   on the cluster, creating a separate task for each element in the
@@ -36,6 +36,23 @@ methods
     %   responsible for adding relevant paths using addpath.
 
         % Validate arguments
+        inParser = inputParser;
+        inParser.addRequired('funcname', @ischar);
+        inParser.addOptional('args', {});
+        inParser.addOptional('directives', [], @(x) ischar(x) || iscell(x) || isempty(x));
+        inParser.addOptional('deps', true, @islogical);
+        inParser.addParameter('workingDir', [], @ischar);
+        inParser.addParameter('numOutputs', [], @(x) isnumeric(x) & x >= 0);
+        
+        inParser.parse(funcname, varargin{:});
+        args = inParser.Results.args;
+        directives = inParser.Results.directives;
+        deps = inParser.Results.deps;
+        numOutputs = inParser.Results.numOutputs;
+        if isempty(numOutputs),
+            numOutputs = nargout(funcname);
+        end
+        
         argstruct = struct();
         if isempty(args)
             args = {};
@@ -82,7 +99,7 @@ methods
         end
 
         % Copy dependencies to server
-        if ~exist('deps', 'var') || deps
+        if deps
             fprintf('Copying function and dependencies to server...\n');
             deps = matlab.codetools.requiredFilesAndProducts(funcname);
             if ~isempty(deps)
@@ -121,7 +138,7 @@ methods
             end
             matlab_cmd = sprintf('matlab -nodisplay -singleCompThread -r %s -logfile %s/%s >/dev/null 2>&1', ...
                 self.shellesc(cmd), self.dir, diaryfile);
-            if exist('directives', 'var')
+            if ~isempty(directives)
                 matlab_cmd = sprintf('#PBS -l %s\n%s', directives, matlab_cmd);
             end
             diaryfiles{i} = diaryfile;
