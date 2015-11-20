@@ -76,7 +76,11 @@ methods
         matorque_config;
         [username, password] = self.credentials(false);
         fprintf('Connecting to server...\n');
-        self.dir = sprintf('jobs/%d', randi(2^53-1));
+        if ~isempty(inParser.Results.workingDir)
+            self.dir = sprintf('%s/jobs/%d', inParser.Results.workingDir, randi(2^53-1));
+        else
+            self.dir = sprintf('jobs/%d', randi(2^53-1));
+        end
         while isempty(self.conn)
             config = self.sshconfig();
             config.hostname = HOST;
